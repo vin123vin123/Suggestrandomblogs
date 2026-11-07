@@ -1,1 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Admin Panel</title>
+    <style>
+        :root { --bg: #0c0a09; --panel: #1c1917; --border: #2e2a24; --accent: #ea580c; --text: #f5f5f4; }
+        body { font-family: system-ui, sans-serif; background-color: var(--bg); color: var(--text); padding: 2rem; display: flex; justify-content: center; }
+        .box { width: 100%; max-width: 500px; background: var(--panel); border: 1px solid var(--border); padding: 2rem; border-radius: 8px; }
+        h2 { margin-top: 0; color: #fff; font-size: 1.3rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        .group { margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
+        label { font-size: 0.85rem; color: #a8a29e; font-weight: 500; }
+        input, textarea { background: #292524; border: 1px solid var(--border); color: #fff; padding: 0.6rem; border-radius: 4px; font-family: inherit; font-size: 0.95rem; }
+        input:focus, textarea:focus { outline: 1px solid var(--accent); }
+        button { background: var(--accent); color: white; border: none; padding: 0.7rem; border-radius: 4px; cursor: pointer; font-weight: 600; margin-top: 0.5rem; }
+        button:hover { background: #d946ef; }
+        .hidden { display: none; }
+        .msg { font-size: 0.9rem; padding: 0.5rem; border-radius: 4px; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+
+    <!-- Access Lock Frame -->
+    <div id="login-frame" class="box">
+        <h2>Administrative Gateway Authentication</h2>
+        <div class="group">
+            <label>Operator Sign-in</label>
+            <input type="text" id="user" placeholder="Username" value="admin">
+        </div>
+        <div class="group">
+            <label>Password Signature</label>
+            <input type="password" id="pass" placeholder="••••••••••••">
+        </div>
+        <button onclick="handleLogin()">Authorize Token</button>
+        <div id="login-msg" class="msg hidden"></div>
+    </div>
+
+    <!-- Protected Management Console -->
+    <div id="console-frame" class="box hidden">
+        <h2>Write Control Block</h2>
+        <div class="group">
+            <label>Document Title</label>
+            <input type="text" id="title-input" placeholder="Enter clean string metadata">
+        </div>
+        <div class="group">
+            <label>Payload Stream Content</label>
+            <textarea id="content-input" rows="6" placeholder="Write entry text data standard format..."></textarea>
+        </div>
+        <button onclick="commitBlog()">Commit Transaction to DB</button>
+        <button onclick="logout()" style="background:#444; margin-left: 0.5rem;">Revoke Token</button>
+        <div id="console-msg" class="msg hidden"></div>
+    </div>
+
+    <script>
+        const BASE_URL = 'http://127.0.0';
+        let authToken = sessionStorage.getItem('admin_token') || '';
+
+        // Verification routing check
+        if (authToken) showConsole();
+
+        async function handleLogin() {
+            const u = document.getElementById('user').value;
+            const p = document.getElementById('pass').value;
+            const msg = document.getElementById('login-msg');
+
+            try {
+                const r = await fetch(`${BASE_URL}/admin/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: u, password: p })
+                });
+                const res = await r.json();
+                if (!r.ok) throw new Error(res.detail || 'Authorization failed');
+                
+                authToken = res.access_token;
+                sessionStorage.setItem('admin_token', authToken);
+                showConsole();
+            } catch (err) {
+                msg.className = "msg";
+                msg.style.cssText = "background:#451a03; color:#f97316; border:1px solid #7c2d12;";
+                msg.textContent = err.message;
+            }
+        }
+
+        async function commitBlog() {
+            const title = document.getElementById('title-input').value;
+            const content = document.getElementById('content-input').value;
+            const msg = document.getElementById('console-msg');
+
+            try {
+                const r = await fetch(`${BASE_URL}/admin/blogs`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ title, content })
+                });
+                const res = await r.json();
+                if (r.status === 401) { logout(); throw new Error("Session expired."); }
+                if (!r.ok) throw new Error(res.detail || 'Write failed');
+
+                msg.className = "msg";
+                msg.style.cssText = "background:#064e3b; color:#34d399; border:1px solid #047857;";
+                msg.textContent = res.message;
+                document.getElementById('title-input').value = '';
+                document.getElementById('content-input').value = '';
+            } catch (err) {
+                msg.className = "msg";
+                msg.style.cssText = "background:#450a0a; color:#f87171; border:1px solid #7f1d1d;";
+                msg.textContent = err.message;
+            }
+        }
+
+        function showConsole() {
+            document.getElementById('login-frame').classList.add('hidden');
+            document.getElementById('console-frame').classList.remove('hidden');
+        }
+
+        function logout() {
+            sessionStorage.removeItem('admin_token');
+            authToken = '';
+            document.getElementById('console-frame').classList.add('hidden');
+            document.getElementById('login-frame').classList.remove('hidden');
+            document.getElementById('login-msg').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
 
