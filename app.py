@@ -7,12 +7,11 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from passlib.context import CryptContext
 import jwt
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from pymongo import MongoClient
 
 app = FastAPI()
 
-# Enable Global CORS so your frontend static site can access it
+# Enable Global CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,7 +20,7 @@ app.add_middleware(
 )
 
 # Configuration Variables pulling from environment
-DATABASE_URL = os.environ.get("DATABASE_URL") # Provided automatically by Render DB link
+MONGO_URI = os.environ.get("MONGO_URI") # Provided by your MongoDB Atlas Connection String
 SECRET_KEY = os.environ.get("JWT_SECRET", "FALLBACK_SECURE_KEY_12345")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
@@ -41,27 +40,13 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
-def get_db_connection():
-    # Establishes connection to the remote resilient database cluster
-    if not DATABASE_URL:
-        raise HTTPException(status_code=500, detail="Database URL missing.")
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-
-def init_db():
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS blogs (
-                    id SERIAL PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
-    finally:
-        conn.close()
+def get_db_collection():
+    if not MONGO_URI:
+        raise HTTPException(status_code=500, detail="Database URL (MONGO_URI) missing.")
+    # Connects to the remote MongoDB cluster
+    client = MongoClient(MONGO_URI)
+    db = client["blog_db"]
+    return db["blogs"]
 
 def verify_token(token: str = Depends(oauth2_scheme)):
     try:
@@ -85,34 +70,29 @@ def login(data: LoginRequest):
 
 @app.post("/api/admin/blogs")
 def create_blog(blog: BlogCreate, username: str = Depends(verify_token)):
-    conn = get_db_connection()
     try:
-        with conn.cursor() as cursor:
-            cursor.execute("INSERT INTO blogs (title, content) VALUES (%s, %s)", (blog.title, blog.content))
-            conn.commit()
-        return {"status": "Success", "message": "Blog permanently logged."}
+        collection = get_db_collection()
+        blog_document = {
+            "title": blog.title,
+            "content": blog.content,
+            "created_at": datetime.datetime.utcnow().isoformat() + "Z"
+        }
+        collection.insert_one(blog_document)
+        return {"status": "Success", "message": "Blog permanently logged in MongoDB."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Write error: {str(e)}")
-    finally:
-        conn.close()
 
 @app.get("/api/blogs/shuffled")
 def get_shuffled_blogs():
-    conn = get_db_connection()
     try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT id, title, content, created_at FROM blogs ORDER BY created_at DESC LIMIT 50")
-            blogs = cursor.fetchall()
+        collection = get_db_collection()
+        # Fetch newest 50 documents sorting by created_at descending
+        cursor = collection.find({}, {"_id": 0}).sort("created_at", -1).limit(50)
+        blogs = list(cursor)
+        
+        # Server-side randomization execution
         random.shuffle(blogs)
         return blogs
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database read failure: {str(e)}")
-    finally:
-        conn.close()
 
-# Initialize DB structure on application startup trigger
-init_db()
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
