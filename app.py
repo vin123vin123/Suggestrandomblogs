@@ -1,7 +1,7 @@
 import os
 import random
 import datetime
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
@@ -11,9 +11,11 @@ from pymongo import MongoClient
 
 app = FastAPI()
 
+# 1. Enforce Global Cross-Origin Rules explicitly for all browsers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -27,8 +29,6 @@ ADMIN_USERNAME = "admin"
 ADMIN_HASHED_PASSWORD = "$bcrypt$v=2$m=12,t=12,p=1$Z82361/mDqM1D.O7W20tqu$29a2E8J4HqgV63cOQd1wz2Yd8wX4eSm"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Using standard Header key check instead of strict OAuth form-data constraints
 header_scheme = APIKeyHeader(name="Authorization", auto_error=False)
 
 class BlogCreate(BaseModel):
@@ -46,9 +46,13 @@ def get_db_collection():
     db = client["blog_db"]
     return db["blogs"]
 
-def verify_token(header_value: str = Depends(header_scheme)):
+def verify_token(request: Request, header_value: str = Depends(header_scheme)):
+    # Crucial Browser Fix: Let preflight security checks pass without dropping tokens
+    if request.method == "OPTIONS":
+        return None
+        
     if not header_value or not header_value.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token not found")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing or malformed")
     
     token = header_value.split(" ")[1]
     try:
