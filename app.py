@@ -44,6 +44,8 @@ def get_db_collection():
         raise HTTPException(status_code=500, detail="Database URL (MONGO_URI) missing.")
     client = MongoClient(MONGO_URI)
     db = client["blog_db"]
+
+    print("con...mdb")
     return db["blogs"]
 
 def verify_token(request: Request, header_value: str = Depends(header_scheme)):
